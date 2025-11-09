@@ -2,6 +2,7 @@ import os
 import requests
 import json
 import logging
+import time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -14,6 +15,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = """
@@ -109,15 +112,26 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text)
 
 def main():
+    """Start the bot."""
+    # Create the Application and pass it your bot's token.
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("setapi", set_api))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, shorten_url))
 
-    print("🤖 Bot starting on cloud...")
+    # Start the Bot
+    logger.info("Starting bot...")
     application.run_polling()
 
 if __name__ == '__main__':
-    main()
+    # Run the bot with error handling and auto-restart
+    while True:
+        try:
+            main()
+        except Exception as e:
+            logger.error(f"Bot crashed with error: {e}")
+            logger.info("Restarting in 10 seconds...")
+            time.sleep(10)
