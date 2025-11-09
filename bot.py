@@ -1,49 +1,123 @@
+import os
 import requests
+import json
 import logging
-import time
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN = "8229579729:AAHl6evGAUA96K-94SRnHVlMvj7QaEZPblM"
+# Bot configuration - Use environment variables
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8229579729:AAHl6evGAUA96K-94SRnHVlMvj7QaEZPblM')
+ADLINKFLY_API_BASE = "https://anyshorturl.com/api"
 
-# Detailed logging
+# Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-print("🚀 BOT STARTING - DEBUG VERSION...")
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"✅ /start received from {update.effective_user.first_name}")
-    await update.message.reply_text("🎉 Debug Bot is Working!")
+    welcome_text = """
+🤖 URL Shortener Bot
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    print(f"📝 Message received: {text}")
-    await update.message.reply_text(f"🔁 Echo: {text}")
+I can shorten URLs using your AdLinkFly website!
+
+How to use:
+1. First set your API key using /setapi command
+2. Then send me any URL to shorten
+
+Commands:
+/setapi <your_api_key> - Set your API key
+/help - Show help guide
+    """
+    await update.message.reply_text(welcome_text)
+
+async def set_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ Please provide API key:\n/setapi YOUR_API_KEY")
+        return
+    
+    api_key = context.args[0]
+    context.user_data['api_key'] = api_key
+    await update.message.reply_text("✅ API key set successfully!")
+
+async def shorten_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if 'api_key' not in context.user_data:
+        await update.message.reply_text("❌ Please set your API key first:\n/setapi YOUR_API_KEY")
+        return
+    
+    url = update.message.text
+    api_key = context.user_data['api_key']
+    
+    if not url.startswith(('http://', 'https://')):
+        await update.message.reply_text("❌ Please send a valid URL (starting with http:// or https://)")
+        return
+    
+    try:
+        processing_msg = await update.message.reply_text("⏳ Processing your URL...")
+        
+        api_url = f"{ADLINKFLY_API_BASE}?api={api_key}&url={requests.utils.quote(url)}"
+        response = requests.get(api_url)
+        
+        if response.status_code == 200:
+            # Parse JSON response
+            data = response.json()
+            
+            if data.get('status') == 'success' and data.get('shortenedUrl'):
+                shortened_url = data['shortenedUrl']
+                await processing_msg.delete()
+                
+                await update.message.reply_text(
+                    f"✅ **URL Shortened Successfully!**\n\n"
+                    f"🔗 **Original URL:**\n{url}\n\n"
+                    f"🚀 **Shortened URL:**\n{shortened_url}\n\n"
+                    f"📋 **Copy this URL:** `{shortened_url}`",
+                    parse_mode='Markdown'
+                )
+            else:
+                await processing_msg.delete()
+                await update.message.reply_text(f"❌ API Error: {data.get('message', 'Unknown error')}")
+        else:
+            await processing_msg.delete()
+            await update.message.reply_text("❌ Error: Server returned an error response")
+            
+    except json.JSONDecodeError:
+        await processing_msg.delete()
+        await update.message.reply_text("❌ Error: Invalid response from server")
+    except Exception as e:
+        await processing_msg.delete()
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+🆘 **Help Guide**
+
+**How to get API Key:**
+1. Login to anyshorturl.com
+2. Go to API section in Dashboard
+3. Copy your API key
+
+**Commands:**
+/start - Start the bot
+/setapi <api_key> - Set your API key
+/help - Show help message
+
+**How to use:**
+1. Set API key using /setapi command
+2. Send any URL to shorten
+3. Copy the shortened URL from the response
+    """
+    await update.message.reply_text(help_text)
 
 def main():
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            print(f"🔄 Attempt {attempt + 1} to start bot...")
-            
-            app = Application.builder().token(BOT_TOKEN).build()
-            app.add_handler(CommandHandler("start", start))
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-            
-            print("✅ Starting polling...")
-            app.run_polling()
-            break
-            
-        except Exception as e:
-            print(f"❌ Attempt {attempt + 1} failed: {e}")
-            if attempt < max_retries - 1:
-                print("🔄 Retrying in 10 seconds...")
-                time.sleep(10)
-            else:
-                print("💥 All attempts failed")
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("setapi", set_api))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, shorten_url))
+
+    print("🤖 Bot starting on cloud...")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
